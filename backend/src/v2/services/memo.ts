@@ -321,14 +321,17 @@ rpc("MemoService", "UpdateMemo", "required", async (req, ctx) => {
         sets.push("created_ts = ?");
         params.push(ts);
         break;
-      }
-      case "update_time": {
-        const ts = fromTimestamp(memo.updateTime);
+      }   
+        case "update_time": {
+        // 前端在内容/附件/关系/位置变化时会自动把 "update_time" 加入 update_mask，
+        // 但不一定会附带具体的 updateTime 值（意图只是让后端顺便刷新时间戳）。
+        // 没有值时退回当前时间，而不是直接报错。
+        const ts = memo.updateTime !== undefined ? fromTimestamp(memo.updateTime) : nowSec();
         if (ts == null) throw invalidArgument("invalid update_time");
         sets.push("updated_ts = ?");
         params.push(ts);
         updateTimeSet = true;
-        break;
+        break; 
       }
       case "attachments": {
         await rebindAttachments(ctx.env, row.id, auth.userId, attachmentUids(memo.attachments));
