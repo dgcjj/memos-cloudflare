@@ -50,6 +50,19 @@ export function mountConnectRoutes(app: Hono<{ Bindings: Env }>) {
         }
       }
 
+      // google.protobuf.FieldMask 的标准 JSON 编码是逗号分隔的驼峰字符串
+      // （例如 "content,updateTime"），但下面各个 handler 期望的是
+      // { paths: [...] } 形式且使用下划线命名。这里统一转换一次。
+      if (typeof requestBody.updateMask === "string") {
+        const camelToSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+        const paths = requestBody.updateMask
+          .split(",")
+          .map((p: string) => p.trim())
+          .filter(Boolean)
+          .map(camelToSnake);
+        requestBody.updateMask = { paths };
+      }
+
       const auth = await authenticate(c.req.raw, c.env);
       if (registration.auth === "required" && !auth) {
         throw unauthenticated();
