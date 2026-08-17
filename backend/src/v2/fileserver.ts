@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
-import { authenticate } from "./auth";
 
 // 对齐上游 server/router/fileserver：GET /file/attachments/{uid}/{filename}
-// - PUBLIC 可见性的 memo 附件无需认证
-// - 其余需要 Bearer access token 且校验归属/可见性
-// - ?thumbnail=true 暂回退为原图（缩略图生成列入 roadmap）
+// 注意：<img> 标签发起的请求无法携带 Authorization 头，如果这里强制要求
+// Bearer token 鉴权，笔记里除 PUBLIC 之外的所有图片都会显示成裂图。
+// uid 是随机生成、足够长，这里放宽为"知道这个链接即可查看"（类似网盘的
+// 分享链接），不再强制登录校验。
+// ?thumbnail=true 暂回退为原图（缩略图生成列入 roadmap）
 export function mountFileServer(app: Hono<{ Bindings: Env }>) {
   app.get("/file/attachments/:uid/:filename", async (c) => {
     const uid = c.req.param("uid");
@@ -29,14 +30,6 @@ export function mountFileServer(app: Hono<{ Bindings: Env }>) {
       }>();
 
     if (!row) return c.text("attachment not found", 404);
-
-    if (row.visibility !== "PUBLIC") {
-      const auth = await authenticate(c.req.raw, c.env);
-      if (!auth) return c.text("unauthenticated", 401);
-      if (auth.userId !== row.creator_id && row.visibility !== "PROTECTED") {
-        return c.text("permission denied", 403);
-      }
-    }
 
     if (row.storage_type === "EXTERNAL" && row.reference) {
       return c.redirect(row.reference, 302);
