@@ -13,6 +13,7 @@ import { webhookRoutes } from './routes/webhook';
 import { authMiddleware } from './middleware/auth';
 import { mountConnectRoutes } from './v2/router';
 import { mountFileServer } from './v2/fileserver';
+import { mountRestApi } from './v2/restapi';
 import './v2/services';
 
 // 导入环境类型
@@ -73,6 +74,7 @@ app.get('/health', (c) => {
 // ===== v2: Connect JSON API（对齐上游 Memos v0.29，前端 v0.29.1 使用） =====
 mountConnectRoutes(app);
 mountFileServer(app);
+mountRestApi(app);
 
 // ===== v1 legacy REST 路由（对应旧版 v0.24 前端，过渡期保留） =====
 // 先注册公开的路由
@@ -161,4 +163,4 @@ app.onError((err, c) => {
 
 
 
-export default app; 
+export default app;
