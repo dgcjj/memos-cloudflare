@@ -65,6 +65,7 @@ async function dispatch(c: any, key: string, requestBody: any) {
     });
 
     responseHeaders.set("Content-Type", "application/json");
+    responseHeaders.set("Cache-Control", "no-store");
     return new Response(JSON.stringify(result ?? {}), { status: 200, headers: responseHeaders });
   } catch (err) {
     const connectErr =
@@ -74,7 +75,7 @@ async function dispatch(c: any, key: string, requestBody: any) {
     }
     return new Response(JSON.stringify(connectErr.toBody()), {
       status: connectErr.httpStatus,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
 }
@@ -96,7 +97,7 @@ export function mountConnectRoutes(app: Hono<{ Bindings: Env }>) {
       } catch {
         return new Response(
           JSON.stringify(new ConnectError("invalid_argument", "malformed JSON request body").toBody()),
-          { status: 400, headers: { "Content-Type": "application/json" } },
+          { status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
         );
       }
     }
@@ -118,7 +119,7 @@ export function mountConnectRoutes(app: Hono<{ Bindings: Env }>) {
       } catch {
         return new Response(
           JSON.stringify(new ConnectError("invalid_argument", "malformed 'message' query parameter").toBody()),
-          { status: 400, headers: { "Content-Type": "application/json" } },
+          { status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
         );
       }
     }
