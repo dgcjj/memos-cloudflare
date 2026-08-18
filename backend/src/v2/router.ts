@@ -30,6 +30,8 @@ export function rpc(service: string, method: string, auth: AuthPolicy, handler: 
 // google.protobuf.FieldMask 的标准 JSON 编码是逗号分隔的驼峰字符串
 // （例如 "content,updateTime"），但下面各个 handler 期望的是
 // { paths: [...] } 形式且使用下划线命名。这里统一转换一次。
+// 注意：如果调用方（例如 REST 兼容层）已经直接传入 { paths: [...] } 对象，
+// 这里会原样跳过——REST 层负责自己生成下划线命名的 paths。
 function normalizeUpdateMask(requestBody: any) {
   if (typeof requestBody.updateMask === "string") {
     const camelToSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
@@ -42,31 +44,46 @@ function normalizeUpdateMask(requestBody: any) {
   }
 }
 
-async function dispatch(c: any, key: string, requestBody: any) {
+/**
+ * 执行一次 RPC 调用并返回响应 JSON（不封装 Response）。
+ * 供 Connect 协议路由（本文件的 dispatch）和 REST 兼容层（restapi.ts）共用，
+ * 这样两边的鉴权 / updateMask 归一化 / handler 调用逻辑完全一致，不会出现行为分叉。
+ * 失败时抛出 ConnectError，调用方自行决定如何转换成 HTTP 响应。
+ */
+export async function invokeRpc(
+  c: any,
+  key: string,
+  requestBody: any,
+  responseHeaders: Headers = new Headers(),
+): Promise<Record<string, unknown>> {
   const registration = registry.get(key);
+  if (!registration) {
+    throw unimplemented(key);
+  }
+
+  normalizeUpdateMask(requestBody);
+
+  const auth = await authenticate(c.req.raw, c.env);
+  if (registration.auth === "required" && !auth) {
+    throw unauthenticated();
+  }
+
+  const result = await registration.handler(requestBody, {
+    env: c.env,
+    req: c.req.raw,
+    auth,
+    responseHeaders,
+  });
+  return result ?? {};
+}
+
+async function dispatch(c: any, key: string, requestBody: any) {
+  const responseHeaders = new Headers();
   try {
-    if (!registration) {
-      throw unimplemented(key);
-    }
-
-    normalizeUpdateMask(requestBody);
-
-    const auth = await authenticate(c.req.raw, c.env);
-    if (registration.auth === "required" && !auth) {
-      throw unauthenticated();
-    }
-
-    const responseHeaders = new Headers();
-    const result = await registration.handler(requestBody, {
-      env: c.env,
-      req: c.req.raw,
-      auth,
-      responseHeaders,
-    });
-
+    const result = await invokeRpc(c, key, requestBody, responseHeaders);
     responseHeaders.set("Content-Type", "application/json");
     responseHeaders.set("Cache-Control", "no-store");
-    return new Response(JSON.stringify(result ?? {}), { status: 200, headers: responseHeaders });
+    return new Response(JSON.stringify(result), { status: 200, headers: responseHeaders });
   } catch (err) {
     const connectErr =
       err instanceof ConnectError ? err : internal(err instanceof Error ? err.message : "unknown error");
