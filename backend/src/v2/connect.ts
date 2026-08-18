@@ -65,10 +65,16 @@ export const permissionDenied = (msg = "permission denied") => new ConnectError(
 export const unimplemented = (method: string) => new ConnectError("unimplemented", `${method} is not implemented yet`);
 export const internal = (msg: string) => new ConnectError("internal", msg);
 
-// proto3 JSON 的 google.protobuf.Timestamp 表示（RFC 3339 字符串）
+// proto3 JSON 的 google.protobuf.Timestamp 表示（RFC 3339 字符串）。
+// 注意：不带小数秒（去掉 toISOString() 自带的 ".000"）。
+// protobuf 的 Timestamp JSON 映射本身允许 0/3/6/9 位小数秒，两种写法都合法；
+// 但部分客户端（例如 MoeMemos 用的 Swift OpenAPI 生成客户端，底层走 Foundation
+// 的 ISO8601DateFormatter）在默认配置下只认不带小数秒的格式，遇到 ".000Z" 这种
+// 带小数秒的时间戳会直接解析失败（DecodingError: "the data isn't in the
+// correct format"）。去掉小数秒后两边都能正常解析。
 export const toTimestamp = (unixSeconds: number | null | undefined): string | undefined => {
   if (unixSeconds == null) return undefined;
-  return new Date(unixSeconds * 1000).toISOString();
+  return new Date(unixSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 };
 
 export const fromTimestamp = (ts: string | null | undefined): number | undefined => {
