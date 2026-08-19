@@ -142,8 +142,17 @@ app.get('/o/r/:uid/:filename', async (c) => {
   }
 });
 
-// 404 处理：单 Worker 同源部署时回退到静态前端（SPA 路由如 /explore 返回 index.html）
+// 404 处理：单 Worker 同源部署时回退到静态前端（SPA 路由如 /explore 返回 index.html）。
+// 注意：只对"页面导航"类路径做这个兜底，/api/ 开头的路径必须老实返回 404 JSON。
+// 曾经的教训：前端 useLiveMemoRefresh.ts 会请求一个本项目从未实现过的 /api/v1/sse
+// (SSE 长连接)。如果这里把它也兜底成 200 + index.html，前端会误判"连接成功"，
+// 把重连退避间隔重置回 1 秒，读完这段"假流"后又立刻重连——变成每秒一次的死循环，
+// 一个开着的网页标签页一天就能刷出 8 万+ 次请求，把 Workers 免费额度吃满。
 app.notFound(async (c) => {
+  const url = new URL(c.req.url);
+  if (url.pathname.startsWith('/api/')) {
+    return c.json({ message: 'Not Found' }, 404);
+  }
   if (c.env.ASSETS && c.req.method === 'GET') {
     const res = await c.env.ASSETS.fetch(c.req.raw);
     if (res.status !== 404) return res;
