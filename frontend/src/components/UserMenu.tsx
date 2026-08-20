@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import useCurrentUser from "@/hooks/useCurrentUser";
-import { useSSEConnectionStatus } from "@/hooks/useLiveMemoRefresh";
 import useNavigateTo from "@/hooks/useNavigateTo";
 import { useUpdateUserGeneralSetting } from "@/hooks/useUserQueries";
 import { locales } from "@/i18n";
@@ -29,7 +28,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 interface Props {
   collapsed?: boolean;
@@ -42,7 +40,6 @@ const UserMenu = (props: Props) => {
   const currentUser = useCurrentUser();
   const { userGeneralSetting, refetchSettings, logout } = useAuth();
   const { mutate: updateUserGeneralSetting } = useUpdateUserGeneralSetting(currentUser?.name);
-  const sseStatus = useSSEConnectionStatus();
   const currentLocale = getLocaleWithFallback(userGeneralSetting?.locale);
   const currentTheme = getThemeWithFallback(userGeneralSetting?.theme);
 
@@ -112,19 +109,9 @@ const UserMenu = (props: Props) => {
             ) : (
               <User2Icon className="w-6 mx-auto h-auto text-muted-foreground" />
             )}
-            {sseStatus !== "connected" && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    className={cn(
-                      "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background",
-                      sseStatus === "connecting" ? "bg-muted-foreground animate-pulse" : "bg-destructive",
-                    )}
-                  />
-                </TooltipTrigger>
-                <TooltipContent side="right">{t(`live-update.${sseStatus}` as Parameters<typeof t>[0])}</TooltipContent>
-              </Tooltip>
-            )}
+            {/* SSE 连接状态指示点已移除：后端未实现 /api/v1/sse，
+                状态恒为 disconnected，这个红点会一直常亮，属于误导性提示。
+                随 main.tsx 里 useLiveMemoRefresh() 的停用一并去掉。 */}
           </div>
           {!collapsed && (
             <span className="ml-2 text-lg font-medium text-foreground grow truncate">
