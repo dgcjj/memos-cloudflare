@@ -222,6 +222,47 @@ export const authenticate = async (req: Request, env: Env): Promise<AuthContext 
   return { userId: Number(claims.sub), username: claims.username || claims.name || "", role: claims.role || "USER" };
 };
 
+/**
+ * 只读校验 refresh cookie 并返回用户身份——不轮换、不写库。
+ *
+ * 用途：<img> / <video> 等标签发起的请求无法携带 Authorization 头，
+ * 同源部署下它们会自动带上 HttpOnly 的 memos_refresh cookie，
+ * 因此附件路由用这条通道鉴权，既能显示私有图片又不必放弃权限校验。
+ *
+ * 注意：这里刻意不调用 rotateSession()——否则每加载一张图片就会轮换一次
+ * 会话令牌，多图笔记会把自己的会话冲掉。
+ */
+export const resolveUserFromRefreshToken = async (
+  env: Env,
+  refreshToken: string,
+): Promise<AuthContext | null> => {
+  const claims = await verifyJwt(refreshToken, env.JWT_SECRET);
+  if (!claims || claims.type !== "refresh" || !claims.tid) return null;
+  const aud: string[] = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes(REFRESH_AUDIENCE) || claims.iss !== ISSUER) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const row = await env.DB.prepare(
+    `SELECT r.user_id, r.expires_ts, r.rotated_ts, u.username, u.role, u.row_status
+     FROM refresh_token r JOIN user u ON u.id = r.user_id
+     WHERE r.token_id = ?`,
+  )
+    .bind(claims.tid)
+    .first<{
+      user_id: number;
+      expires_ts: number;
+      rotated_ts: number | null;
+      username: string;
+      role: string;
+      row_status: string;
+    }>();
+  if (!row || row.row_status !== "NORMAL") return null;
+  if (row.expires_ts < now) return null;
+  if (row.rotated_ts != null && now - row.rotated_ts > ROTATION_GRACE_SEC) return null;
+
+  return { userId: row.user_id, username: row.username, role: row.role };
+};
+
 export const generatePatToken = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   let bin = "";
