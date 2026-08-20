@@ -3,14 +3,6 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 
-import { authRoutes } from './routes/auth';
-import { userRoutes } from './routes/user';
-import { memoRoutes } from './routes/memo';
-import { tagRoutes } from './routes/tag';
-import { resourceRoutes } from './routes/resource';
-import { workspaceRoutes } from './routes/workspace';
-import { webhookRoutes } from './routes/webhook';
-import { authMiddleware } from './middleware/auth';
 import { mountConnectRoutes } from './v2/router';
 import { mountFileServer } from './v2/fileserver';
 import { mountRestApi } from './v2/restapi';
@@ -33,7 +25,7 @@ app.use('*', cors({
     if (!origin) return null;
     const allowed = (c.env.ALLOWED_ORIGINS || '')
       .split(',')
-      .map((s) => s.trim())
+      .map((s: string) => s.trim())
       .filter(Boolean);
     return allowed.includes(origin) ? origin : null;
   },
@@ -64,71 +56,11 @@ mountConnectRoutes(app);
 mountFileServer(app);
 mountRestApi(app);
 
-// ===== v1 legacy REST 路由（对应旧版 v0.24 前端，过渡期保留） =====
-// 先注册公开的路由
-app.route('/api/auth', authRoutes);
-
-// workspace 路由 - /profile 和 /setting GET 端点是公开的
-app.route('/api/workspace', workspaceRoutes);
-
-// 需要认证的路由
-app.use('/api/user/*', authMiddleware);
-app.use('/api/tag/*', authMiddleware);
-app.use('/api/resource/*', authMiddleware);
-app.use('/api/webhook/*', authMiddleware);
-
-// memo 路由需要部分认证
-app.use('/api/memo', authMiddleware);
-app.post('/api/memo/*', authMiddleware);
-app.patch('/api/memo/*', authMiddleware);
-app.delete('/api/memo/*', authMiddleware);
-
-app.route('/api/user', userRoutes);
-app.route('/api/memo', memoRoutes);
-app.route('/api/tag', tagRoutes);
-app.route('/api/resource', resourceRoutes);
-app.route('/api/webhook', webhookRoutes);
-
-// 文件下载路由 (不在 /api 下)
-app.get('/o/r/:uid/:filename', async (c) => {
-  try {
-    const { uid, filename } = c.req.param();
-    
-    // 查询资源信息
-    const resource = await c.env.DB.prepare(
-      'SELECT * FROM resource WHERE uid = ?'
-    ).bind(uid).first();
-
-    if (!resource) {
-      return c.json({ message: 'Resource not found' }, 404);
-    }
-
-    // 检查 R2 绑定是否存在
-    if (!c.env.R2) {
-      return c.json({ message: 'R2 bucket not configured' }, 500);
-    }
-
-    // 从 R2 获取文件
-    const r2Key = `${uid}/${filename}`;
-    const object = await c.env.R2.get(r2Key);
-
-    if (!object) {
-      return c.json({ message: 'File not found in storage' }, 404);
-    }
-
-    // 返回文件内容
-    return new Response(object.body, {
-      headers: {
-        'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
-        'Content-Length': object.size.toString(),
-        'Cache-Control': 'public, max-age=31536000',
-      },
-    });
-  } catch (error: any) {
-    console.error('File download error:', error);
-    return c.json({ message: 'Internal server error' }, 500);
-  }
-});
+// v1 legacy REST 路由（/api/auth、/api/memo、/api/tag 等）已于 2026-08 移除：
+// 它们是为 v0.24 时代的 schema 编写的，依赖 resource / memo_resource / tag / memo_tag
+// 四张表，而当前部署使用的 schema-v2 里这些表并不存在，所有相关端点实际只会返回 500。
+// 同时旧的 JWT 中间件不校验 aud，与 v2 的 authenticate() 存在安全语义差异。
+// 现役接口全部由上面的 Connect API + REST 兼容层提供。
 
 // 404 处理：单 Worker 同源部署时回退到静态前端（SPA 路由如 /explore 返回 index.html）。
 // 注意：只对"页面导航"类路径做这个兜底，/api/ 开头的路径必须老实返回 404 JSON。
