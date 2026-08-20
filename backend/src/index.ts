@@ -23,31 +23,19 @@ import { Env } from './types';
 const app = new Hono<{ Bindings: Env }>();
 
 // 全局中间件
+// CORS：严格白名单。单 Worker 同源部署时浏览器不发 Origin 头，
+// 走 `!origin` 分支，不需要配置 ALLOWED_ORIGINS。
+// 注意：这里必须精确匹配、不中就返回 null（不下发 Access-Control-Allow-Origin），
+// 否则配合 credentials: true 和 SameSite=None 的 refresh cookie，
+// 任意网站都能代表已登录用户调用 RefreshToken 并读走 access token。
 app.use('*', cors({
   origin: (origin, c) => {
-    // 开发环境允许的域名
-    const allowedOrigins = [
-      'http://localhost:3001',
-      'http://localhost:3000',
-      'https://your-frontend-name.pages.dev'
-    ];
-    
-    // 从环境变量获取允许的域名
-    const envOrigins = c.env.ALLOWED_ORIGINS ? c.env.ALLOWED_ORIGINS.split(',') : [];
-    const allAllowed = [...allowedOrigins, ...envOrigins];
-    
-    // 如果origin在允许列表中，或者是localhost，则允许
-    if (!origin || allAllowed.includes(origin) || origin.includes('localhost')) {
-      return origin;
-    }
-    
-    // 如果是以 *.pages.dev 结尾的域名，也允许（Cloudflare Pages）
-    if (origin && origin.includes('.pages.dev')) {
-      return origin;
-    }
-    
-    // 默认允许第一个环境变量域名，或者直接返回origin（更宽松的策略）
-    return origin || envOrigins[0] || allowedOrigins[0];
+    if (!origin) return null;
+    const allowed = (c.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return allowed.includes(origin) ? origin : null;
   },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   // Connect-Protocol-Version / Connect-Timeout-Ms 为 @connectrpc/connect-web 必发头，
