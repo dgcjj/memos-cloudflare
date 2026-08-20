@@ -12,7 +12,7 @@ import { refreshAccessToken } from "@/connect";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { InstanceProvider, useInstance } from "@/contexts/InstanceContext";
 import { ViewProvider } from "@/contexts/ViewContext";
-import { useLiveMemoRefresh } from "@/hooks/useLiveMemoRefresh";
+// import { useLiveMemoRefresh } from "@/hooks/useLiveMemoRefresh";  // 见下方 AppInitializer 内说明
 import { useTokenRefreshOnFocus } from "@/hooks/useTokenRefreshOnFocus";
 import { queryClient } from "@/lib/query-client";
 import router from "./router";
@@ -45,8 +45,12 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
   // Related: https://github.com/usememos/memos/issues/5589
   useTokenRefreshOnFocus(refreshAccessToken, !!currentUser);
 
-  // Live refresh: listen for memo changes via SSE and invalidate caches.
-  useLiveMemoRefresh();
+  // Live refresh（SSE）已停用：本项目的 Cloudflare Worker 后端没有实现 /api/v1/sse，
+  // 该 hook 会以最长 30 秒的退避间隔无限重连，单个开着的标签页每天产生约 2800 次
+  // 必然失败的请求，只污染日志、不带来任何功能。
+  // 如果将来后端补上了 SSE（需要 Durable Objects 做跨客户端广播），
+  // 取消下面这行和顶部 import 的注释即可恢复。
+  // useLiveMemoRefresh();
 
   if (!authInitialized || !instanceInitialized) {
     return null;
