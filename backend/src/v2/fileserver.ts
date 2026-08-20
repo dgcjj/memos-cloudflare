@@ -1,11 +1,17 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
+import { authenticate, extractRefreshToken, resolveUserFromRefreshToken } from "./auth";
 
 // 对齐上游 server/router/fileserver：GET /file/attachments/{uid}/{filename}
-// 注意：<img> 标签发起的请求无法携带 Authorization 头，如果这里强制要求
-// Bearer token 鉴权，笔记里除 PUBLIC 之外的所有图片都会显示成裂图。
-// uid 是随机生成、足够长，这里放宽为"知道这个链接即可查看"（类似网盘的
-// 分享链接），不再强制登录校验。
+// - PUBLIC 可见性的附件无需认证
+// - 其余需要身份，且校验归属/可见性
+//
+// 关于 <img>：图片标签无法携带 Authorization 头，所以这里接受两条鉴权通道——
+// 优先 Bearer access token（第三方客户端如 MoeMemos 走这条），
+// 回退到 HttpOnly 的 memos_refresh cookie（浏览器 <img> 会自动携带）。
+// 不能像早前那样直接删掉校验：uid 会经 Referer、日志、分享链接外泄，
+// 一旦泄露即永久有效且无法吊销，等于 PRIVATE 名存实亡。
+//
 // ?thumbnail=true 暂回退为原图（缩略图生成列入 roadmap）
 export function mountFileServer(app: Hono<{ Bindings: Env }>) {
   app.get("/file/attachments/:uid/:filename", async (c) => {
@@ -30,6 +36,20 @@ export function mountFileServer(app: Hono<{ Bindings: Env }>) {
       }>();
 
     if (!row) return c.text("attachment not found", 404);
+
+    // visibility 为 null 表示附件尚未绑定到任何 memo（刚上传、编辑器预览中），
+    // 此时按最严处理：只有上传者本人可读。
+    if (row.visibility !== "PUBLIC") {
+      let auth = await authenticate(c.req.raw, c.env);
+      if (!auth) {
+        const cookieToken = extractRefreshToken(c.req.raw);
+        if (cookieToken) auth = await resolveUserFromRefreshToken(c.env, cookieToken);
+      }
+      if (!auth) return c.text("unauthenticated", 401);
+      if (auth.userId !== row.creator_id && row.visibility !== "PROTECTED") {
+        return c.text("permission denied", 403);
+      }
+    }
 
     if (row.storage_type === "EXTERNAL" && row.reference) {
       return c.redirect(row.reference, 302);
